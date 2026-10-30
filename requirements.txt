@@ -2,3 +2,5 @@ rasterio
 numpy
 matplotlib
 scipy
+fastapi
+uvicorn

@@ -1,7 +1,10 @@
 """Chennai water change from two Sentinel-2 L2A scenes (NDWI + SCL cloud mask).
 
-Usage:
-    python water_change.py BEFORE.SAFE AFTER.SAFE [--out outputs]
+CLI:
+    python water_change.py BEFORE.SAFE AFTER.SAFE [--out outputs] [--threshold 0.0]
+Python / API:
+    from water_change import analyse
+    results = analyse(before_dir, after_dir, out_dir, threshold=0.0)
 """
 import argparse, glob, json, os
 import numpy as np
@@ -82,21 +85,17 @@ def sea_mask(water, size=31):
     return np.isin(labels, east) & water
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("before"); ap.add_argument("after")
-    ap.add_argument("--out", default="outputs")
-    ap.add_argument("--threshold", type=float, default=0.0, help="NDWI water threshold")
-    a = ap.parse_args()
-    os.makedirs(a.out, exist_ok=True)
+def analyse(before, after, out="outputs", threshold=0.0):
+    """Run the full pipeline, write all outputs to `out`, return the results dict."""
+    os.makedirs(out, exist_ok=True)
 
-    nd1, inv1, tr, crs = load_scene(a.before)
-    nd2, inv2, tr2, _ = load_scene(a.after)
+    nd1, inv1, tr, crs = load_scene(before)
+    nd2, inv2, tr2, _ = load_scene(after)
     if nd1.shape != nd2.shape:
         h, w = min(nd1.shape[0], nd2.shape[0]), min(nd1.shape[1], nd2.shape[1])
         nd1, inv1, nd2, inv2 = nd1[:h, :w], inv1[:h, :w], nd2[:h, :w], inv2[:h, :w]
 
-    w1, w2 = nd1 > a.threshold, nd2 > a.threshold
+    w1, w2 = nd1 > threshold, nd2 > threshold
     valid = ~(inv1 | inv2)                 # clear in BOTH dates
     w1v, w2v = w1 & valid, w2 & valid      # same mask for both totals
     sea = sea_mask(w1v | w2v)
@@ -111,6 +110,7 @@ def main():
         return round(float(m.sum() * px_km2), 2)
 
     res = {
+        "threshold": threshold,
         "clear_both_km2": km2(valid),
         "masked_before_pct": round(float(inv1.mean() * 100), 1),
         "masked_after_pct": round(float(inv2.mean() * 100), 1),
@@ -122,25 +122,36 @@ def main():
         "inland_appeared_km2": km2((change == 1) & ~sea),
         "inland_disappeared_km2": km2((change == -1) & ~sea),
     }
-    json.dump(res, open(os.path.join(a.out, "results.json"), "w"), indent=2)
-    print(json.dumps(res, indent=2))
+    with open(os.path.join(out, "results.json"), "w") as f:
+        json.dump(res, f, indent=2)
 
-    plot_water(nd1, inv1, f"Water - before monsoon (NDWI > {a.threshold})",
-               os.path.join(a.out, "water_before.png"), a.threshold)
-    plot_water(nd2, inv2, f"Water - after monsoon (NDWI > {a.threshold})",
-               os.path.join(a.out, "water_after.png"), a.threshold)
+    plot_water(nd1, inv1, f"Water - before monsoon (NDWI > {threshold})",
+               os.path.join(out, "water_before.png"), threshold)
+    plot_water(nd2, inv2, f"Water - after monsoon (NDWI > {threshold})",
+               os.path.join(out, "water_after.png"), threshold)
+
     cmap = ListedColormap(["#d7191c", "#f0f0f0", "#2b83ba", "#999999"])
     vis = np.select([change == -1, change == 0, change == 1], [0, 1, 2], 3)
     plt.figure(figsize=(7, 7)); plt.imshow(vis, cmap=cmap, vmin=0, vmax=3)
     plt.title("Water change (after - before)"); plt.axis("off")
     plt.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=c) for c in ["#d7191c", "#f0f0f0", "#2b83ba", "#999999"]],
                labels=["Disappeared", "No change", "Appeared", "Masked"], loc="lower right")
-    plt.savefig(os.path.join(a.out, "water_change.png"), dpi=200, bbox_inches="tight"); plt.close()
+    plt.savefig(os.path.join(out, "water_change.png"), dpi=200, bbox_inches="tight"); plt.close()
 
-    with rasterio.open(os.path.join(a.out, "water_change.tif"), "w", driver="GTiff",
+    with rasterio.open(os.path.join(out, "water_change.tif"), "w", driver="GTiff",
                        height=change.shape[0], width=change.shape[1], count=1,
                        dtype="int8", crs=crs, transform=tr, nodata=NODATA, compress="lzw") as dst:
         dst.write(change, 1)
+    return res
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("before"); ap.add_argument("after")
+    ap.add_argument("--out", default="outputs")
+    ap.add_argument("--threshold", type=float, default=0.0, help="NDWI water threshold")
+    a = ap.parse_args()
+    print(json.dumps(analyse(a.before, a.after, a.out, a.threshold), indent=2))
 
 
 if __name__ == "__main__":

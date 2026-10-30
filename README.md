@@ -85,4 +85,11 @@ With NDWI > 0.1 the inland totals are 41.15 and 37.98 km2 (net change -3.17 km2)
 \## Limitations
 
 Bounding-box crop (not the city boundary); fixed NDWI threshold; January clouds mask part of the south-west reservoirs; flooded fields and wet soil near NDWI = 0 add noise; river mouths vary with tide.
-
+   ## API (bonus)
+   ```powershell
+   pip install -r requirements.txt
+   uvicorn api:app --reload
+   ```
+   Open http://127.0.0.1:8000/docs, or call
+   `/analyze?before=2025-10-06&after=2026-01-14[&threshold=0.1]`.
+   Scenes are looked up by date in `data/`; results and maps are cached in `api_outputs/`.
