@@ -1,0 +1,12 @@
+{
+  "clear_both_km2": 955.67,
+  "masked_before_pct": 0.3,
+  "masked_after_pct": 9.2,
+  "total_water_before_km2": 299.31,
+  "total_water_after_km2": 292.92,
+  "sea_km2": 244.44,
+  "inland_water_before_km2": 55.05,
+  "inland_water_after_km2": 48.55,
+  "inland_appeared_km2": 7.43,
+  "inland_disappeared_km2": 13.93
+}
