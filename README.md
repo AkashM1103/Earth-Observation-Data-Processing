@@ -1,95 +1,189 @@
-\# Chennai water change (Sentinel-2 L2A, 2025 NE monsoon)
+# Chennai Water Change Detection
 
+Mapping how surface water in Chennai changed across the **2025 north-east monsoon**, using Sentinel-2 imagery, cloud masking and the NDWI water index.
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Sentinel-2](https://img.shields.io/badge/Data-Sentinel--2%20L2A-0B3D91)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)
 
-Compares surface water in Chennai before and after the 2025 north-east monsoon using NDWI,
+Two cloud-masked Sentinel-2 scenes (6 Oct 2025 and 14 Jan 2026) are compared pixel by pixel. The project produces a water map for each date, a change map, water areas in km², a change-map GeoTIFF, and a small web API that does the same for any pair of dates.
 
-with clouds masked using the Sentinel-2 scene classification layer (SCL).
+**Contents:** [Results](#results) · [Data](#data) · [Quick start](#quick-start) · [API](#api-bonus) · [Method](#method) · [Outputs](#outputs) · [Limitations](#limitations) · [Project structure](#project-structure)
 
+---
 
+## Results
 
-\## Data (Copernicus Browser, Sentinel-2 L2A, tile T44PMV, relative orbit 119)
+| Date | Total water (incl. sea) | Inland water |
+|---|---|---|
+| Before: 2025-10-06 | 299.31 km² | **55.05 km²** |
+| After: 2026-01-14 | 292.92 km² | **48.55 km²** |
+
+Inland water **appeared** on 7.43 km² and **disappeared** on 13.93 km², a net change of **-6.50 km² (-11.8%)**. All areas are computed on the 955.67 km² that was cloud-free on both dates. The Bay of Bengal (244.44 km²) is reported separately.
+
+<table>
+  <tr>
+    <td align="center"><img src="outputs/water_before.png" alt="Water before the monsoon" width="100%"><br><sub>Water before (6 Oct 2025)</sub></td>
+    <td align="center"><img src="outputs/water_after.png" alt="Water after the monsoon" width="100%"><br><sub>Water after (14 Jan 2026)</sub></td>
+    <td align="center"><img src="outputs/water_change.png" alt="Water change map" width="100%"><br><sub>Change (after - before)</sub></td>
+  </tr>
+</table>
+
+**Sensitivity to the water threshold**
+
+| | NDWI > 0 | NDWI > 0.1 |
+|---|---|---|
+| Inland water before / after | 55.05 / 48.55 km² | 41.15 / 37.98 km² |
+| Appeared / disappeared | 7.43 / 13.93 km² | 2.96 / 6.13 km² |
+| Net inland change | -6.50 km² (-11.8%) | -3.17 km² (-7.7%) |
+
+The direction of the change is the same at both thresholds, but its size is not, so it is best read as a range of roughly 3 to 6.5 km². The early-October scene may still hold water from the preceding season, so this result should not be read as monsoon-driven drying. See [Limitations](#limitations).
+
+---
+
+## Data
+
+Both scenes are Sentinel-2 **Level-2A** products from the [Copernicus Browser](https://browser.dataspace.copernicus.eu/), taken from the **same tile and relative orbit** so that pixels line up without any reprojection.
 
 | | Before | After |
-
 |---|---|---|
-
-| Scene | S2C\_MSIL2A\_20251006T045711\_N0511\_R119\_T44PMV\_20251006T093213 | S2C\_MSIL2A\_20260114T050151\_N0511\_R119\_T44PMV\_20260114T080009 |
-
+| Product | `S2C_MSIL2A_20251006T045711_N0511_R119_T44PMV_20251006T093213` | `S2C_MSIL2A_20260114T050151_N0511_R119_T44PMV_20260114T080009` |
 | Date | 2025-10-06 | 2026-01-14 |
+| Tile / orbit | T44PMV / R119 | T44PMV / R119 |
+| Cloud cover (whole tile) | 7.46% | 2.07% |
 
-| Cloud cover (tile) | 7.46% | 2.07% |
+The raw scenes are about 1 GB each and are **not** stored in this repository. Download both, unzip them, and place them like this:
 
-
-
-Download both from https://browser.dataspace.copernicus.eu/ and unzip them into `data/before` and `data/after`.
-
-
-
-\## Run
-
-```powershell
-
-python -m venv venv
-
-.\\venv\\Scripts\\Activate.ps1
-
-pip install -r requirements.txt
-
-python water\_change.py data\\before\\<BEFORE>.SAFE data\\after\\<AFTER>.SAFE --out outputs
-
-python water\_change.py data\\before\\<BEFORE>.SAFE data\\after\\<AFTER>.SAFE --out outputs\_t01 --threshold 0.1
-
+```text
+data/
+├── before/S2C_MSIL2A_20251006T045711_N0511_R119_T44PMV_20251006T093213.SAFE
+└── after/S2C_MSIL2A_20260114T050151_N0511_R119_T44PMV_20260114T080009.SAFE
 ```
 
+---
 
+## Quick start
 
-\## Method
+```bash
+git clone https://github.com/AkashM1103/Earth-Observation-Data-Processing.git
+cd Earth-Observation-Data-Processing
 
-1\. Crop B03 (green) and B08 (NIR), 10 m, to the Chennai bounding box (80.10-80.35 E, 12.90-13.25 N).
+python -m venv venv
+# Windows PowerShell:  .\venv\Scripts\Activate.ps1
+# macOS / Linux:       source venv/bin/activate
 
-2\. Resample SCL (20 m) to 10 m (nearest) and mask classes 0, 1, 3, 8, 9, 10 (nodata, saturated, cloud shadow, cloud, cirrus).
+pip install -r requirements.txt
+```
 
-3\. Subtract the +1000 BOA offset, then NDWI = (Green - NIR) / (Green + NIR). Water = NDWI > threshold (default 0).
+Run the analysis:
 
-4\. Change map: 1 = water appeared, -1 = disappeared, 0 = unchanged, 127 = masked on either date.
+```bash
+python water_change.py \
+  data/before/S2C_MSIL2A_20251006T045711_N0511_R119_T44PMV_20251006T093213.SAFE \
+  data/after/S2C_MSIL2A_20260114T050151_N0511_R119_T44PMV_20260114T080009.SAFE \
+  --out outputs
+```
 
-5\. Areas are counted on pixels that are clear on both dates (pixel = 100 m2). The sea is the large water body touching the east edge (morphological opening, 31 px); everything else is inland water.
+On Windows PowerShell, put the command on one line instead of using `\`.
 
-
-
-\## Outputs (`outputs/`)
-
-`water\_before.png`, `water\_after.png`, `water\_change.png`, `water\_change.tif` (int8, EPSG of the scene, nodata 127), `results.json`
-
-
-
-\## Results (NDWI > 0)
-
-| | Before | After |
-
+| Option | Default | Meaning |
 |---|---|---|
+| `--out` | `outputs` | Folder for the results |
+| `--threshold` | `0.0` | NDWI value above which a pixel counts as water |
 
-| Total water incl. sea (km2) | 299.31 | 292.92 |
+Try `--threshold 0.1` with `--out outputs_t01` to reproduce the sensitivity test. A run takes about 10 to 60 seconds.
 
-| Inland water (km2) | 55.05 | 48.55 |
+---
 
+## API (bonus)
 
+A [FastAPI](https://fastapi.tiangolo.com/) service wraps the same processing. It finds the scenes in `data/` by **acquisition date**, so you pass dates, not file paths.
 
-Inland water appeared on 7.43 km2 and disappeared on 13.93 km2 (clear area compared: 955.67 km2).
+```bash
+uvicorn api:app --reload
+```
 
-With NDWI > 0.1 the inland totals are 41.15 and 37.98 km2 (net change -3.17 km2).
+Then open **http://127.0.0.1:8000/docs** for the interactive page.
 
+| Endpoint | Description |
+|---|---|
+| `GET /scenes` | Lists the dates and tiles found under `data/` |
+| `GET /analyze?before=2025-10-06&after=2026-01-14` | Runs the analysis and returns areas in km² plus links to the outputs |
+| `GET /files/{run_id}/{filename}` | Downloads a map (PNG), the GeoTIFF or `results.json` |
 
+`/analyze` also accepts `threshold` (default `0`) and `tile` (default `T44PMV`). Results are cached in `api_outputs/`, so a repeated request returns immediately. A date with no scene returns a 404 that lists the available dates, and `before` must be earlier than `after`.
 
-\## Limitations
+Example response (abridged):
 
-Bounding-box crop (not the city boundary); fixed NDWI threshold; January clouds mask part of the south-west reservoirs; flooded fields and wet soil near NDWI = 0 add noise; river mouths vary with tide.
-   ## API (bonus)
-   ```powershell
-   pip install -r requirements.txt
-   uvicorn api:app --reload
-   ```
-   Open http://127.0.0.1:8000/docs, or call
-   `/analyze?before=2025-10-06&after=2026-01-14[&threshold=0.1]`.
-   Scenes are looked up by date in `data/`; results and maps are cached in `api_outputs/`.
+```json
+{
+  "before": "2025-10-06",
+  "after": "2026-01-14",
+  "tile": "T44PMV",
+  "cached": false,
+  "results": {
+    "inland_water_before_km2": 55.05,
+    "inland_water_after_km2": 48.55,
+    "inland_appeared_km2": 7.43,
+    "inland_disappeared_km2": 13.93
+  }
+}
+```
+
+The API analyses scenes that are already downloaded. It does not fetch data from Copernicus.
+
+---
+
+## Method
+
+1. **Crop.** Bands B03 (green) and B08 (NIR), both 10 m, are read for a Chennai bounding box (80.10 to 80.35 °E, 12.90 to 13.25 °N).
+2. **Cloud mask.** The 20 m scene classification layer (SCL) is resampled to 10 m with nearest-neighbour, which keeps the class codes intact. Classes 0, 1, 3, 8, 9 and 10 are masked: no data, saturated, cloud shadow, medium and high cloud probability, and thin cirrus.
+3. **NDWI.** The +1000 reflectance offset of processing baseline N05.11 is removed and values are divided by 10000. Then `NDWI = (Green - NIR) / (Green + NIR)`, and a pixel is water where NDWI is above the threshold.
+4. **Change detection.** Each pixel is classed as appeared (`1`), disappeared (`-1`), unchanged (`0`), or no data (`127`) when masked on either date.
+5. **Areas.** Only pixels that are clear on both dates are counted, at 100 m² per pixel, so the totals agree with the change map. The sea is the wide water body touching the eastern edge of the crop, found with a morphological opening (31 px). All remaining water is inland.
+
+---
+
+## Outputs
+
+Written to the folder given by `--out`:
+
+| File | Description |
+|---|---|
+| `water_before.png` | Water map, before the monsoon |
+| `water_after.png` | Water map, after the monsoon |
+| `water_change.png` | Change map (appeared, disappeared, no change, masked) |
+| `water_change.tif` | Change-map GeoTIFF: `int8`, EPSG:32644 (UTM 44N), 10 m, nodata 127 |
+| `results.json` | Areas in km², masked percentages and the threshold used |
+
+Open `water_change.tif` in QGIS over an OpenStreetMap basemap to inspect it.
+
+---
+
+## Limitations
+
+- **Cloud masking in the January scene.** 9.2% of the crop is masked, including patches over reservoirs in the west and south-west, so change there cannot be assessed. The before scene is only 0.3% masked.
+- **Threshold sensitivity.** About a quarter of inland water has NDWI between 0 and 0.1 (wet soil, flooded fields, shallow or turbid water), and the change map has fine speckle from pixels near the cut-off. Urban shadows can also read as water.
+- **Dynamic water edges.** River mouths and backwaters change with tide and sandbars, so some change there is not rainfall-driven.
+- **Method limits.** A bounding box is used instead of the exact city boundary, the SCL is 20 m while NDWI is 10 m, and only two dates are compared, so the cause of the change cannot be determined.
+
+Ideas for improvement: more dates, a city-boundary mask, MNDWI using the SWIR band, and a minimum patch size to remove speckle.
+
+---
+
+## Project structure
+
+```text
+.
+├── water_change.py                    # Processing pipeline and command-line tool
+├── api.py                             # FastAPI service
+├── requirements.txt
+├── Chennai_Water_Change_Summary.pdf   # Written summary: approach, results, problems
+├── outputs/                           # Maps, GeoTIFF and results.json
+├── data/                              # Sentinel-2 scenes (not in the repo)
+└── api_outputs/                       # API result cache (not in the repo)
+```
+
+## Acknowledgements
+
+Contains modified Copernicus Sentinel data (2025 to 2026), processed by ESA and accessed through the Copernicus Data Space Ecosystem.
